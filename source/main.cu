@@ -5,6 +5,7 @@
 #include <math.h>
 #include <vector>
 #include <limits>
+#include <fstream>
 
 #include "Weaver.h"
 #include "lodepng.h"
@@ -24,7 +25,7 @@ bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
 		for (size_t x = 0; x < *width; x++)
 		{
 			int index = ((y * (*width)) + x);
-			(*data)[index] = 1.5f * (rawImgData[(index * 4)] + rawImgData[(index * 4) + 1] + rawImgData[(index * 4) + 2]) / 3.0f / 255.0f;
+			(*data)[index] = 0.8f * (rawImgData[(index * 4)] + rawImgData[(index * 4) + 1] + rawImgData[(index * 4) + 2]) / 3.0f / 255.0f;
 		}
 		
 	}
@@ -65,11 +66,22 @@ Point* getCircumfrancePoints(int n) {
 	return points;
 }
 
+void printHelp() {
+	std::cout << "Weaver usage:" << std::endl
+			  << "./weaver [input image] [output image] [instructions output file] [flags]" << std::endl
+			  << "  -p The number of points to generate" << std::endl
+			  << "  -b The blur radius of the recreated image before the loss calculation (given as a percentage of the total resolution)" << std::endl
+			  << "  -i The maximimum number of iterations" << std::endl
+			  << "  -l The thickness of the line (given as a percentage of the total resolution)" << std::endl
+			  << "  -r The resolution of the image to do the calculations on (in pixels)" << std::endl;
+}
+
 int main(int argc, char *argv[]) {
 	float* data;
 	uint width, height;
-	const char* infilename = argc > 1 ? argv[1] : "input.png";
-	const char* outfilename = argc > 2 ? argv[2] : "output.png";
+	const char* infilename = "input.png";
+	const char* outfilename = "output.png";
+	const char* instructionsFilePath = nullptr;
 
 	uint pointCount = 102;
 	float blurRadius = 0.001f;
@@ -78,27 +90,45 @@ int main(int argc, char *argv[]) {
 	uint resolution = 512;
 
 
-	for (size_t i = 3; i < argc; i++)
+	for (size_t i = 1; i < argc; i++)
 	{
 		std::cout << argv[i] << std::endl;
 		if(strcmp(argv[i], "-p") == 0) {
 			pointCount = atoi(argv[++i]);
-		}
-
-		if(strcmp(argv[i], "-b") == 0) {
+			if(pointCount <= 0) {
+				printHelp();
+				return;
+			}
+		} else if(strcmp(argv[i], "-b") == 0) {
 			blurRadius = (float)atof(argv[++i]);
-		}
-
-		if(strcmp(argv[i], "-i") == 0) {
+			if(blurRadius <= 0) {
+				printHelp();
+				return;
+			}
+		} else if(strcmp(argv[i], "-i") == 0) {
 			iterations = atoi(argv[++i]);
-		}
-
-		if(strcmp(argv[i], "-l") == 0) {
+			if(iterations <= 0) {
+				printHelp();
+				return;
+			}
+		} else if(strcmp(argv[i], "-l") == 0) {
 			lineThickness = (float)atof(argv[++i]);
-		}
-
-		if(strcmp(argv[i], "-r") == 0) {
+			if(lineThickness <= 0) {
+				printHelp();
+				return;
+			}
+		} else if(strcmp(argv[i], "-r") == 0) {
 			resolution = atoi(argv[++i]);
+			if(resolution <= 0) {
+				printHelp();
+				return;
+			}
+		} else if(i == 1) {
+			infilename = argv[i];
+		} else if(i == 2) {
+			outfilename = argv[i];
+		} else if(i == 3) {
+			instructionsFilePath = argv[i];
 		}
 	}
 	
@@ -128,6 +158,19 @@ int main(int argc, char *argv[]) {
 		prevLoss = loss;
 	}	
 	weaver.saveCurrentImage(outfilename);
+
+	if (instructionsFilePath != nullptr) {
+		std::ofstream instructionsFile;
+		instructionsFile.open(instructionsFilePath);
+
+		instructionsFile << "####### POINTS #######" << std::endl;
+		for (size_t i = 0; i < pointCount; i++)
+		{
+			instructionsFile << i << ", " << points[i].x << ", " << points[i].y << std::endl;
+		}
+		instructionsFile << "#### INSTRUCTIONS ####" << std::endl;
+		instructionsFile <<  weaver.getInstructionsStr() << std::endl;
+	}
 
 	return 0;
 }

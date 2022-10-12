@@ -2,6 +2,9 @@
 
 #include <cstdlib>
 #include <cmath>
+#include <sstream>
+#include <chrono>
+using namespace std::chrono;
 
 #include "WeaveKernel.h"
 #include "lodepng.h"
@@ -103,50 +106,64 @@ Weaver::~Weaver()
 void Weaver::makeConnection(int pointIndex) {
     connections.push_back(pointIndex);
 
-    std::cout << "," << std::endl;
     h_connectionMatrix[(pointIndex * resolution) + currentPoint] = 1;
     h_connectionMatrix[(currentPoint * resolution) + pointIndex] = 1;
-    std::cout << "," << std::endl;
     HANDLE_ERROR(cudaMemcpy(d_connectionMatrix, h_connectionMatrix, pointCount * pointCount * sizeof(int), cudaMemcpyHostToDevice));
-    std::cout << "," << std::endl;
     HANDLE_ERROR(cudaMemcpy(d_currentImage, &d_weaveBlock[pointIndex * resolution * resolution], (sizeof(float) * resolution * resolution), cudaMemcpyDeviceToDevice));
-    std::cout << "," << std::endl;
     currentPoint = pointIndex;
 }
 
 int Weaver::weaveIteration() {
+    auto begin = high_resolution_clock::now();
 
     int xLim = resolution;
     int yLim = resolution;
     int zLim = pointCount;  
 
-    const int BLOCK_X = 8;
-    const int BLOCK_Y = 8;
+    const int BLOCK_X = 32;
+    const int BLOCK_Y = 32;
     const int BLOCK_Z = 1;
 
     dim3 block(BLOCK_X, BLOCK_Y, BLOCK_Z);
     dim3 grid((int)ceilf(xLim / BLOCK_X), (int)ceilf(yLim / BLOCK_Y), (int)ceilf(zLim / BLOCK_Z));
 
+    // Start timer
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start); 
+	cudaEventCreate(&stop); 
+	cudaEventRecord(start);
     // Draw lines
-    std::cout << "." << std::endl;
     dev_drawLine<<<grid, block>>>(d_weaveBlock, d_currentImage, d_points, currentPoint, pointCount, resolution, lineThickness);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) 
         printf("Error: %s\n", cudaGetErrorString(err));
+    // Stop timer
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop); 
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+    printf(" %f ms ", milliseconds);
 
+    // Start timer
+	cudaEventCreate(&start); 
+	cudaEventCreate(&stop); 
+	cudaEventRecord(start);
     // Compute loss
-    std::cout << "." << std::endl;
-    dev_calculateLoss<<<grid, block>>>(d_weaveBlock, d_tempWeaveBlock, d_connectionMatrix, d_currentImage, d_targetImage, d_points, d_scores, d_gausianKernel, kernelSize, currentPoint, pointCount, resolution);
+    dev_calculateLoss<<<grid, block, BLOCK_X * BLOCK_Y * sizeof(float)>>>(d_weaveBlock, d_tempWeaveBlock, d_connectionMatrix, d_currentImage, d_targetImage, d_points, d_scores, d_gausianKernel, kernelSize, currentPoint, pointCount, resolution);
     err = cudaGetLastError();
     if (err != cudaSuccess) 
         printf("Error: %s\n", cudaGetErrorString(err));
+        // Stop timer
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop); 
+	milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+    printf(" %f ms ", milliseconds);
 
-    std::cout << "." << std::endl;
     float* scores = (float*)malloc(sizeof(float) * pointCount);
     HANDLE_ERROR(cudaMemcpy(scores, d_scores, sizeof(float) * pointCount, cudaMemcpyDeviceToHost));
 
     // Find min value
-    std::cout << "." << std::endl;
     int lowestIndex = 0;
     float minLoss = scores[0];
     for (size_t i = 0; i < pointCount; i++)
@@ -160,13 +177,14 @@ int Weaver::weaveIteration() {
     }
 
     // Reset score
-    std::cout << "." << std::endl;
     HANDLE_ERROR(cudaMemcpy(d_scores, scores, sizeof(float) * pointCount, cudaMemcpyHostToDevice));
     free(scores);
 
-    std::cout << "." << std::endl;
     makeConnection(lowestIndex);
-    std::cout << "." << std::endl;
+
+    auto end = high_resolution_clock::now();
+    auto duration = duration_cast<microseconds>(end - begin);
+    std::cout << " " << duration.count() / 1000.0f << " ms ";
 
     return minLoss;
 }
@@ -204,6 +222,17 @@ void Weaver::saveCurrentImage(const char* fileName) {
     std::cout << "g." << std::endl;
     free(h_imgData);
     free(outputData);
+}
+
+std::string Weaver::getInstructionsStr() {
+    std::stringstream ss;
+    ss.str("");
+    ss << connections[0];
+    for (auto it = connections.begin() + 1; it != connections.end(); it++)
+    {
+        ss << " -> " << (*it);
+    }
+    return ss.str();     
 }
 
 void Weaver::initializeGPUMemory() {

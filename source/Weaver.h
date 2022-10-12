@@ -19,6 +19,7 @@ public:
     void makeConnection(int pointIndex);
     void saveCurrentImage(const char* fileName);
     void saveBlockImage(const char* fileName);
+    std::string getInstructionsStr();
 private:
     void initializeGPUMemory();
 

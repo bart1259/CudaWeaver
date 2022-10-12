@@ -81,6 +81,15 @@ __global__ void dev_drawLine(float* d_weaveBlock,
 
 }
 
+__device__ int ipowi(int base, int power) {
+    int num = 1;
+    for (size_t i = 0; i < power; i++)
+    {
+        num *= base;
+    }
+    return num;
+}
+
 __global__ void dev_calculateLoss(float* d_weaveBlock, 
     float* d_tempWeaveBlock,
     int* d_connectionMatrix,
@@ -101,7 +110,7 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
     // Ensure thread is within bound
     if(z < pointCount && x < resolution && y < resolution) {
 
-        // Blur image
+        // // Blur image
         float accum = 0.0f;
         for (int blurX = -kernelSize / 2; blurX <= kernelSize / 2; blurX++)
         {
@@ -117,7 +126,7 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
                 }
             }
         }
-        // d_currentImage[(z * resolution * resolution) + (y * resolution) + x] = accum;
+        // float accum = d_weaveBlock[(z * resolution * resolution) + (y * resolution) + x];
 
         // Get Pixel loss
         float l1 = accum - d_targetImage[(y * resolution) + x];
@@ -125,18 +134,47 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
         // if(z == 45)
         //     d_currentImage[(y * resolution) + x] = l2;
 
-        atomicAdd(&d_scores[z], l2);
-    }
+        float loss = 0.0f;
+        loss += l2;
 
-    // If the connection already exists, penalize
-    if(d_connectionMatrix[(z * resolution) + currentPoint] == 1){
-        atomicAdd(&d_scores[z], 1.0f);
-    }
+        // If the connection already exists, penalize
+        if(d_connectionMatrix[(z * resolution) + currentPoint] == 1){
+            loss += 1.0f;
+        }
 
-    // If connection is close, penalize proportionally
-    int apart = 1 + fminf(labs(z - currentPoint), labs(z - 100 - currentPoint));
-    float closenessPenalty = 1.0f / expf(apart);
-    atomicAdd(&d_scores[z], closenessPenalty);
+        // If connection is close, penalize proportionally
+        int apart = 1 + fminf(labs(z - currentPoint), labs(z - 100 - currentPoint));
+        float closenessPenalty = 1.0f / expf(apart);
+        loss += closenessPenalty;
+
+        int idx = (threadIdx.y * blockDim.x) + threadIdx.x;
+        __shared__ float blockLoss[32 * 32];
+        blockLoss[idx] = loss;
+
+        // Reduce sum
+        for (size_t s = 1; s < (blockDim.x * blockDim.y); s *= 2)
+        {
+            __syncthreads();
+            if(idx % (2*s) == 0) {
+                blockLoss[idx] += blockLoss[idx + s];
+            }
+        }
+        
+        __syncthreads();
+
+        if(threadIdx.x == 0 && threadIdx.y == 0){
+            atomicAdd(&d_scores[z], blockLoss[0]);
+            // float l = 0.0f;
+            // for (size_t a = 0; a < blockDim.x * blockDim.y; a++)
+            // {
+            //     l+= blockLoss[a];
+            // }
+            // atomicAdd(&d_scores[z], l);
+        }
+            // atomicAdd(&d_scores[z], loss);
+
+        // 115810 - 115757 -
+    }
 
     // if(z == 49) {
     //     d_currentImage[(y * resolution) + x] = d_tempWeaveBlock[(z * resolution * resolution) + (y * resolution) + x];
