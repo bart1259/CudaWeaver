@@ -3,6 +3,7 @@
 
 #include "GPUUtils.h"
 #include "Point.h"
+#include "color.h"
 #include "WeaveKernel.h"
 #include <iostream>
 
@@ -12,7 +13,7 @@
 class Weaver
 {
 public:
-    Weaver(float* targetImage, Point* points, int resolution, int pointCount, float lineThickness, float gausianBlurRadius);
+    Weaver(float* targetImage, Point* points, Color* colors, int colorCount, int resolution, int pointCount, float lineThickness, float gausianBlurRadius);
     ~Weaver();
 
     int weaveIteration();
@@ -31,6 +32,7 @@ private:
     Point* d_points;
     float* d_scores;
     float* d_gausianKernel;
+    Color* d_colors;
 
     int* h_connectionMatrix;
 
@@ -41,6 +43,8 @@ private:
     int currentPoint = 0;
     int resolution;
     int pointCount;
+    int colorCount;
+    int threadsToCheck;
 };
 
 

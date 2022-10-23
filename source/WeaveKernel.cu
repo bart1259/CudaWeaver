@@ -32,17 +32,21 @@ __global__ void dev_drawLine(float* d_weaveBlock,
     int currentPoint,
     int pointCount,
     int resolution,
-    float lineThickness) {
+    float lineThickness,
+    Color* colors,
+    int colorCount) {
     
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
     int z = (blockIdx.z * blockDim.z) + threadIdx.z;
 
+    Color color = colors[z / pointCount];
+
     float px = x / (float) resolution;
     float py = y / (float) resolution;
 
     // Ensure thread is within bound
-    if(z < pointCount && x < resolution && y < resolution) {
+    if(z < pointCount * colorCount && x < resolution && y < resolution) {
 
         if(((px - 0.5f) * (px - 0.5f)) + ((py - 0.5f) * (py - 0.5f)) >= 0.25f) {
             return;
@@ -51,8 +55,8 @@ __global__ void dev_drawLine(float* d_weaveBlock,
         // Draw Line
         float ax = d_points[currentPoint].x;
         float ay = d_points[currentPoint].y;
-        float bx = d_points[z].x;
-        float by = d_points[z].y;
+        float bx = d_points[z % pointCount].x;
+        float by = d_points[z % pointCount].y;
 
         float val = 0.0f;
         float max = 0.0f;
@@ -73,8 +77,11 @@ __global__ void dev_drawLine(float* d_weaveBlock,
             }
         }
         
-        val /= max;
-        d_weaveBlock[(z * resolution * resolution) + (y * resolution) + x] = d_currentImage[(y * resolution) + x] * val;
+        float alpha = 1 - (val / max);
+
+        d_weaveBlock[(((z * resolution * resolution) + (y * resolution) + x) * 3) + 0] = ((1.0f - alpha) * d_currentImage[(((y * resolution) + x) * 3) + 0]) + (color.r * alpha);
+        d_weaveBlock[(((z * resolution * resolution) + (y * resolution) + x) * 3) + 1] = ((1.0f - alpha) * d_currentImage[(((y * resolution) + x) * 3) + 1]) + (color.g * alpha);
+        d_weaveBlock[(((z * resolution * resolution) + (y * resolution) + x) * 3) + 2] = ((1.0f - alpha) * d_currentImage[(((y * resolution) + x) * 3) + 2]) + (color.b * alpha);
     }
 
     return;
@@ -101,17 +108,21 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
     int kernelSize,
     int currentPoint,
     int pointCount,
-    int resolution) {
+    int resolution,
+    Color* colors,
+    int colorCount) {
 
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
     int z = (blockIdx.z * blockDim.z) + threadIdx.z;
 
     // Ensure thread is within bound
-    if(z < pointCount && x < resolution && y < resolution) {
+    if(z < pointCount * colorCount && x < resolution && y < resolution) {
 
         // // Blur image
-        float accum = 0.0f;
+        float accumR = 0.0f;
+        float accumG = 0.0f;
+        float accumB = 0.0f;
         for (int blurX = -kernelSize / 2; blurX <= kernelSize / 2; blurX++)
         {
             for (int blurY = -kernelSize / 2; blurY <= kernelSize / 2; blurY++)
@@ -120,16 +131,24 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
                 int xi = x + blurX;
                 int yi = y + blurY;
                 if(xi < 0 || xi >= resolution || yi < 0 || yi >= resolution) {
-                    accum += strength;
+                    accumR += strength;
+                    accumG += strength;
+                    accumB += strength;
                 } else {
-                    accum += strength * d_weaveBlock[(z * resolution * resolution) + (yi * resolution) + xi];
+                    accumR += strength * d_weaveBlock[(((z * resolution * resolution) + (yi * resolution) + xi) * 3) + 0];
+                    accumG += strength * d_weaveBlock[(((z * resolution * resolution) + (yi * resolution) + xi) * 3) + 1];
+                    accumB += strength * d_weaveBlock[(((z * resolution * resolution) + (yi * resolution) + xi) * 3) + 2];
                 }
             }
         }
         // float accum = d_weaveBlock[(z * resolution * resolution) + (y * resolution) + x];
 
         // Get Pixel loss
-        float l1 = accum - d_targetImage[(y * resolution) + x];
+        float l1 = fabsf(accumR - d_targetImage[(((y * resolution) + x) * 3) + 0])
+                 + fabsf(accumG - d_targetImage[(((y * resolution) + x) * 3) + 1])
+                 + fabsf(accumB - d_targetImage[(((y * resolution) + x) * 3) + 2]);
+
+        l1 /= 3;
         float l2 = l1 * l1;
         // if(z == 45)
         //     d_currentImage[(y * resolution) + x] = l2;
@@ -141,6 +160,10 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
         if(d_connectionMatrix[(z * resolution) + currentPoint] == 1){
             loss += 1.0f;
         }
+
+        d_scores[z] = l1;
+        // atomicAdd(&d_scores[z], loss);
+        return;
 
         // If connection is close, penalize proportionally
         int apart = 1 + fminf(labs(z - currentPoint), labs(z - 100 - currentPoint));
@@ -163,7 +186,7 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
         __syncthreads();
 
         if(threadIdx.x == 0 && threadIdx.y == 0){
-            atomicAdd(&d_scores[z], blockLoss[0]);
+            atomicAdd(&d_scores[z], blockLoss[0] * 100);
             // float l = 0.0f;
             // for (size_t a = 0; a < blockDim.x * blockDim.y; a++)
             // {

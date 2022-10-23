@@ -11,53 +11,63 @@ using namespace std::chrono;
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
-Weaver::Weaver(float* targetImage, Point* points, int resolution, int pointCount, float lineThickness, float gausianBlurRadius)
+Weaver::Weaver(float* targetImage, Point* points, Color* colors, int colorCount, int resolution, int pointCount, float lineThickness, float gausianBlurRadius)
 {
     this->resolution = resolution;
     this->pointCount = pointCount;
     this->currentPoint = 0;
     this->lineThickness = lineThickness;
+    this->colorCount = colorCount;
+    this->threadsToCheck = colorCount * pointCount;
 
     connections.push_back(currentPoint);
 
     initializeGPUMemory();
 
-
+    // Copy colors into cuda memory
+    HANDLE_ERROR(cudaMemcpy(d_colors, colors, colorCount * sizeof(Color), cudaMemcpyHostToDevice));
     // Copy points into cuda memory
     HANDLE_ERROR(cudaMemcpy(d_points, points, pointCount * sizeof(Point), cudaMemcpyHostToDevice));
     // Copy target image into cuda memory
-    HANDLE_ERROR(cudaMemcpy(d_targetImage, targetImage, resolution * resolution * sizeof(float), cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_targetImage, targetImage, 3 * resolution * resolution * sizeof(float), cudaMemcpyHostToDevice));
 
     // Clear current Image
-    float* clearedImage = (float*)malloc(sizeof(float) * resolution * resolution);
+    float* clearedImage = (float*)malloc(sizeof(float) * 3 * resolution * resolution);
     for (size_t y = 0; y < resolution; y++)
     {
         for (size_t x = 0; x < resolution; x++)
         {
-            clearedImage[(y * resolution) + x] = 1.0f;
+            for (size_t t = 0; t < 3; t++)
+            {
+                clearedImage[(((y * resolution) + x) * 3) + 0] = 1.0f;
+                clearedImage[(((y * resolution) + x) * 3) + 1] = 1.0f;
+                clearedImage[(((y * resolution) + x) * 3) + 2] = 1.0f;
+            }
         }
     }
-    HANDLE_ERROR(cudaMemcpy(d_currentImage, clearedImage, resolution * resolution * sizeof(float), cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_currentImage, clearedImage, 3 * resolution * resolution * sizeof(float), cudaMemcpyHostToDevice));
     free(clearedImage);
 
     // Clear current weave block
-    float* weaveBlock = (float*)malloc(sizeof(float) * pointCount * resolution * resolution);
+    float* weaveBlock = (float*)malloc(pointCount * colorCount * resolution * resolution * 3 * sizeof(float));
     for (size_t z = 0; z < pointCount; z++) 
     {
         for (size_t y = 0; y < resolution; y++)
         {
             for (size_t x = 0; x < resolution; x++)
             {
-                weaveBlock[(z * resolution * resolution) + (y * resolution) + x] = 1.0f;
+                weaveBlock[(((z * resolution * resolution) + (y * resolution) + x) * 3) + 0] = 1.0f;
+                weaveBlock[(((z * resolution * resolution) + (y * resolution) + x) * 3) + 1] = 1.0f;
+                weaveBlock[(((z * resolution * resolution) + (y * resolution) + x) * 3) + 2] = 1.0f;
             }
         }
     }
-    HANDLE_ERROR(cudaMemcpy(d_weaveBlock, weaveBlock, pointCount * resolution * resolution * sizeof(float), cudaMemcpyHostToDevice));
-    HANDLE_ERROR(cudaMemcpy(d_tempWeaveBlock, weaveBlock, pointCount * resolution * resolution * sizeof(float), cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_weaveBlock,     weaveBlock, pointCount * colorCount * resolution * resolution * 3 * sizeof(float), cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_tempWeaveBlock, weaveBlock, pointCount * colorCount * resolution * resolution * 3 * sizeof(float), cudaMemcpyHostToDevice));
     free(weaveBlock);
 
     // Initalize connection matrix
-    h_connectionMatrix = (int*)malloc(pointCount * pointCount * sizeof(int));
+    h_connectionMatrix = (int*)malloc((pointCount * colorCount) * (pointCount * colorCount) * sizeof(int));
     for (size_t x = 0; x < pointCount; x++)
     {
         for (size_t y = 0; y < pointCount; y++)
@@ -69,7 +79,7 @@ Weaver::Weaver(float* targetImage, Point* points, int resolution, int pointCount
                 h_connectionMatrix[(pointCount * y) + x] = 0;
         }
     }
-    HANDLE_ERROR(cudaMemcpy(d_connectionMatrix, h_connectionMatrix, pointCount * pointCount * sizeof(int), cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_connectionMatrix, h_connectionMatrix, (pointCount * colorCount) * (pointCount * colorCount) * sizeof(int), cudaMemcpyHostToDevice));
 
     const float PI = 3.14159265359f;
     int blurRadius = roundf32(resolution * gausianBlurRadius);
@@ -108,8 +118,8 @@ void Weaver::makeConnection(int pointIndex) {
 
     h_connectionMatrix[(pointIndex * resolution) + currentPoint] = 1;
     h_connectionMatrix[(currentPoint * resolution) + pointIndex] = 1;
-    HANDLE_ERROR(cudaMemcpy(d_connectionMatrix, h_connectionMatrix, pointCount * pointCount * sizeof(int), cudaMemcpyHostToDevice));
-    HANDLE_ERROR(cudaMemcpy(d_currentImage, &d_weaveBlock[pointIndex * resolution * resolution], (sizeof(float) * resolution * resolution), cudaMemcpyDeviceToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_connectionMatrix, h_connectionMatrix, (pointCount * colorCount) * (pointCount * colorCount) * sizeof(int), cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_currentImage, &d_weaveBlock[pointIndex * resolution * resolution * 3], (sizeof(float) * 3 * resolution * resolution), cudaMemcpyDeviceToDevice));
     currentPoint = pointIndex;
 }
 
@@ -118,7 +128,7 @@ int Weaver::weaveIteration() {
 
     int xLim = resolution;
     int yLim = resolution;
-    int zLim = pointCount;  
+    int zLim = pointCount * colorCount;  
 
     const int BLOCK_X = 32;
     const int BLOCK_Y = 32;
@@ -133,7 +143,7 @@ int Weaver::weaveIteration() {
 	cudaEventCreate(&stop); 
 	cudaEventRecord(start);
     // Draw lines
-    dev_drawLine<<<grid, block>>>(d_weaveBlock, d_currentImage, d_points, currentPoint, pointCount, resolution, lineThickness);
+    dev_drawLine<<<grid, block>>>(d_weaveBlock, d_currentImage, d_points, currentPoint, pointCount, resolution, lineThickness, d_colors, colorCount);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) 
         printf("Error: %s\n", cudaGetErrorString(err));
@@ -149,7 +159,7 @@ int Weaver::weaveIteration() {
 	cudaEventCreate(&stop); 
 	cudaEventRecord(start);
     // Compute loss
-    dev_calculateLoss<<<grid, block, BLOCK_X * BLOCK_Y * sizeof(float)>>>(d_weaveBlock, d_tempWeaveBlock, d_connectionMatrix, d_currentImage, d_targetImage, d_points, d_scores, d_gausianKernel, kernelSize, currentPoint, pointCount, resolution);
+    dev_calculateLoss<<<grid, block, BLOCK_X * BLOCK_Y * sizeof(float)>>>(d_weaveBlock, d_tempWeaveBlock, d_connectionMatrix, d_currentImage, d_targetImage, d_points, d_scores, d_gausianKernel, kernelSize, currentPoint, pointCount, resolution, d_colors, colorCount);
     err = cudaGetLastError();
     if (err != cudaSuccess) 
         printf("Error: %s\n", cudaGetErrorString(err));
@@ -161,7 +171,7 @@ int Weaver::weaveIteration() {
     printf(" %f ms ", milliseconds);
 
     float* scores = (float*)malloc(sizeof(float) * pointCount);
-    HANDLE_ERROR(cudaMemcpy(scores, d_scores, sizeof(float) * pointCount, cudaMemcpyDeviceToHost));
+    HANDLE_ERROR(cudaMemcpy(scores, d_scores, sizeof(float) * pointCount * colorCount, cudaMemcpyDeviceToHost));
 
     // Find min value
     int lowestIndex = 0;
@@ -193,10 +203,10 @@ void Weaver::saveCurrentImage(const char* fileName) {
     cudaDeviceSynchronize();
 
     std::cout << "a." << std::endl;
-    size_t grayScaleImageSize = sizeof(float) * resolution * resolution;
-    float* h_imgData = (float*) malloc(grayScaleImageSize);
+    size_t imageSize = sizeof(float) * resolution * resolution * 3;
+    float* h_imgData = (float*) malloc(imageSize);
     std::cout << "b." << std::endl;
-    HANDLE_ERROR(cudaMemcpy(h_imgData, d_currentImage, grayScaleImageSize, cudaMemcpyDeviceToHost));
+    HANDLE_ERROR(cudaMemcpy(h_imgData, d_currentImage, imageSize, cudaMemcpyDeviceToHost));
 
 	size_t outputSize = resolution * resolution * 4 * sizeof(unsigned char);
 	std::cout << "e." << std::endl;
@@ -207,11 +217,9 @@ void Weaver::saveCurrentImage(const char* fileName) {
 		for (size_t x = 0; x < resolution; x++)
 		{
 			int index = ((y * resolution) + x);
-			unsigned char val = (unsigned char)(h_imgData[index] * 255);
-            val = min(max(val, 0), 0xFF);
-			outputData[(index * 4) + 0] = val;
-			outputData[(index * 4) + 1] = val;
-			outputData[(index * 4) + 2] = val;
+			outputData[(index * 4) + 0] = min(max((unsigned char)(h_imgData[(index * 3) + 0] * 255),0),0xFF);
+			outputData[(index * 4) + 1] = min(max((unsigned char)(h_imgData[(index * 3) + 1] * 255),0),0xFF);
+			outputData[(index * 4) + 2] = min(max((unsigned char)(h_imgData[(index * 3) + 2] * 255),0),0xFF);
 			outputData[(index * 4) + 3] = 0xFF;
 		}
 		
@@ -236,11 +244,12 @@ std::string Weaver::getInstructionsStr() {
 }
 
 void Weaver::initializeGPUMemory() {
-    HANDLE_ERROR(cudaMalloc((void**)&d_weaveBlock, resolution * resolution * pointCount * sizeof(float)));
-    HANDLE_ERROR(cudaMalloc((void**)&d_tempWeaveBlock, resolution * resolution * pointCount * sizeof(float)));
-    HANDLE_ERROR(cudaMalloc((void**)&d_connectionMatrix, pointCount * pointCount * sizeof(int)));
-    HANDLE_ERROR(cudaMalloc((void**)&d_currentImage, resolution * resolution * sizeof(float)));
+    HANDLE_ERROR(cudaMalloc((void**)&d_weaveBlock, 3 * resolution * resolution * pointCount * colorCount * sizeof(float)));
+    HANDLE_ERROR(cudaMalloc((void**)&d_tempWeaveBlock, 3 * resolution * resolution * pointCount * colorCount * sizeof(float)));
+    HANDLE_ERROR(cudaMalloc((void**)&d_connectionMatrix, (pointCount * colorCount) * (pointCount * colorCount) * sizeof(int)));
+    HANDLE_ERROR(cudaMalloc((void**)&d_currentImage, 3 * resolution * resolution * sizeof(float)));
     HANDLE_ERROR(cudaMalloc((void**)&d_points, pointCount * sizeof(Point)));
-    HANDLE_ERROR(cudaMalloc((void**)&d_targetImage, resolution * resolution * sizeof(float)));
-    HANDLE_ERROR(cudaMalloc((void**)&d_scores, pointCount * sizeof(float)));
+    HANDLE_ERROR(cudaMalloc((void**)&d_targetImage, 3 * resolution * resolution * sizeof(float)));
+    HANDLE_ERROR(cudaMalloc((void**)&d_scores, colorCount * pointCount * sizeof(float)));
+    HANDLE_ERROR(cudaMalloc((void**)&d_colors, colorCount * sizeof(Color)));
 }

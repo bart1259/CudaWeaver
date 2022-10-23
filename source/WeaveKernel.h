@@ -1,4 +1,5 @@
 #include "Point.h"
+#include "color.h"
 
 #ifndef WEAVE_KERNEL_H
 #define WEAVE_KERNEL_H
@@ -9,7 +10,9 @@ __global__ void dev_drawLine(float* d_weaveBlock,
     int currentPoint,
     int pointCount,
     int resolution,
-    float lineThickness);
+    float lineThickness,
+    Color* colors,
+    int colorCount);
 
 __global__ void dev_calculateLoss(float* d_weaveBlock, 
     float* d_tempWeaveBlock,
@@ -22,6 +25,8 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
     int kernelSize,
     int currentPoint,
     int pointCount,
-    int resolution);
+    int resolution,
+    Color* colors,
+    int colorCount);
 
 #endif

@@ -6,7 +6,9 @@
 #include <vector>
 #include <limits>
 #include <fstream>
+#include <iomanip>
 
+#include "color.h"
 #include "Weaver.h"
 #include "lodepng.h"
 
@@ -18,14 +20,16 @@ bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
         return true;
     }
 
-	*data = (float*)malloc((*width) * (*height) * sizeof(float) * 4);
+	*data = (float*)malloc((*width) * (*height) * sizeof(float) * 3);
 
 	for (size_t y = 0; y < *height; y++)
 	{
 		for (size_t x = 0; x < *width; x++)
 		{
 			int index = ((y * (*width)) + x);
-			(*data)[index] = 0.8f * (rawImgData[(index * 4)] + rawImgData[(index * 4) + 1] + rawImgData[(index * 4) + 2]) / 3.0f / 255.0f;
+			(*data)[(index*3) + 0] = rawImgData[(index * 4) + 0] / 255.0f;
+			(*data)[(index*3) + 1] = rawImgData[(index * 4) + 1] / 255.0f;
+			(*data)[(index*3) + 2] = rawImgData[(index * 4) + 2] / 255.0f;
 		}
 		
 	}
@@ -35,7 +39,7 @@ bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
 }
 
 float* rescale(float* originalImage, uint width, uint height, uint desiredDim) {
-	float* newImage = (float*)malloc(desiredDim * desiredDim * sizeof(float));
+	float* newImage = (float*)malloc(3 * desiredDim * desiredDim * sizeof(float));
 	int originalSize = min(width, height);
 	float scaling = desiredDim / (float)originalSize;
 
@@ -45,7 +49,9 @@ float* rescale(float* originalImage, uint width, uint height, uint desiredDim) {
 		{
 			int ox = (int)(x / scaling);
 			int oy = (int)(y / scaling);
-			newImage[(y * desiredDim) + x] = originalImage[(oy * width) + ox];
+			newImage[(((y * desiredDim) + x) * 3) + 0] = originalImage[(((oy * width) + ox) * 3) + 0];
+			newImage[(((y * desiredDim) + x) * 3) + 1] = originalImage[(((oy * width) + ox) * 3) + 1];
+			newImage[(((y * desiredDim) + x) * 3) + 2] = originalImage[(((oy * width) + ox) * 3) + 2];
 		}
 	}
 
@@ -132,7 +138,6 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	
-
 	if(loadImage(&data, &width, &height, infilename)) {
 		return;
 	}
@@ -140,8 +145,13 @@ int main(int argc, char *argv[]) {
 	data = rescale(data, width, height, resolution);
 
 	Point* points = getCircumfrancePoints(pointCount);
+	Color colors[] = {
+		Color{.r = 1.0f, .g = 0.0f, .b = 0.0f},
+		Color{.r = 0.0f, .g = 1.0f, .b = 0.0f},
+		Color{.r = 0.0f, .g = 0.0f, .b = 1.0f}
+	};
 	
-	Weaver weaver = Weaver(data, points, resolution, pointCount, lineThickness, blurRadius);
+	Weaver weaver = Weaver(data, points, colors, 3, resolution, pointCount, lineThickness, blurRadius);
 	float prevLoss= std::numeric_limits<float>::max();
 	int times = 0;
 	const int MAX_FAIL_TIMES = 5;
@@ -154,7 +164,7 @@ int main(int argc, char *argv[]) {
 		} else {
 			times = 0;
 		}
-		std::cout << i << ": " << loss << std::endl;
+		std::cout << i << ": " << std::fixed << std::setprecision(3) << loss << std::endl;
 		prevLoss = loss;
 	}	
 	weaver.saveCurrentImage(outfilename);
