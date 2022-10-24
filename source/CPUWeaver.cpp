@@ -89,7 +89,6 @@ CPUWeaver::CPUWeaver(float* targetImage, Point* points, int resolution, int poin
 CPUWeaver::~CPUWeaver()
 {
     free(this->h_currentImage);
-    free(this->h_weaveBlock);
     free(this->h_connectionMatrix);
     free(this->h_gausianKernel);
 }
@@ -271,4 +270,23 @@ void CPUWeaver::dev_calculateLoss(){
             }
         }
     }
+}
+
+bool CPUWeaver::insideLine(float px, float py, float ax, float ay, float bx, float by, float lineThickness) {
+    float vAPx = px - ax;
+    float vAPy = py - ay;
+    float vABx = bx - ax;
+    float vABy = by - ay;
+
+    float sqDist = (vABx * vABx) + (vABy * vABy);
+    float abaProd = (vABx * vAPx) + (vABy * vAPy);
+    float amount = abaProd / sqDist;
+
+    amount = fminf(fmaxf(amount, 0.0f), 1.0f);
+
+    float nx = (amount * (bx - ax)) + ax;
+    float ny = (amount * (by - ay)) + ay;
+
+    float dist = sqrtf(((py - ny) * (py - ny)) + ((px - nx) * (px - nx)));
+    return dist < lineThickness / 2.0f;
 }
