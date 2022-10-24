@@ -146,12 +146,13 @@ int main(int argc, char *argv[]) {
 
 	Point* points = getCircumfrancePoints(pointCount);
 	Color colors[] = {
-		Color{.r = 1.0f, .g = 0.0f, .b = 0.0f},
-		Color{.r = 0.0f, .g = 1.0f, .b = 0.0f},
-		Color{.r = 0.0f, .g = 0.0f, .b = 1.0f}
+		Color{.r = 0.0f, .g = 1.0f, .b = 1.0f},   // Cyan
+		Color{.r = 1.0f, .g = 0.95f, .b = 0.45f}, // Pale Yellow
+		Color{.r = 0.f, .g = 0.8f, .b = 0.8f},    // Gray
+		Color{.r = 0.0f, .g = 0.0f, .b = 0.2f},   // Dark Blue
 	};
 	
-	Weaver weaver = Weaver(data, points, colors, 3, resolution, pointCount, lineThickness, blurRadius);
+	Weaver weaver = Weaver(data, points, colors, sizeof(colors) / sizeof(Color), resolution, pointCount, lineThickness, blurRadius);
 	float prevLoss= std::numeric_limits<float>::max();
 	int times = 0;
 	const int MAX_FAIL_TIMES = 5;
@@ -164,7 +165,7 @@ int main(int argc, char *argv[]) {
 		} else {
 			times = 0;
 		}
-		std::cout << i << ": " << std::fixed << std::setprecision(3) << loss << std::endl;
+		std::cout << i << ": " << loss << std::endl;
 		prevLoss = loss;
 	}	
 	weaver.saveCurrentImage(outfilename);

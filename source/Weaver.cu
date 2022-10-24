@@ -15,12 +15,9 @@ Weaver::Weaver(float* targetImage, Point* points, Color* colors, int colorCount,
 {
     this->resolution = resolution;
     this->pointCount = pointCount;
-    this->currentPoint = 0;
     this->lineThickness = lineThickness;
     this->colorCount = colorCount;
     this->threadsToCheck = colorCount * pointCount;
-
-    connections.push_back(currentPoint);
 
     initializeGPUMemory();
 
@@ -30,6 +27,15 @@ Weaver::Weaver(float* targetImage, Point* points, Color* colors, int colorCount,
     HANDLE_ERROR(cudaMemcpy(d_points, points, pointCount * sizeof(Point), cudaMemcpyHostToDevice));
     // Copy target image into cuda memory
     HANDLE_ERROR(cudaMemcpy(d_targetImage, targetImage, 3 * resolution * resolution * sizeof(float), cudaMemcpyHostToDevice));
+
+    // Send current points to GPU
+    h_currentPoints = (int*)malloc(sizeof(int) * colorCount);
+    for (size_t i = 0; i < colorCount; i++)
+    {
+        // Initialize where each thread begins
+        h_currentPoints[i] = i * pointCount / colorCount;
+    }
+    HANDLE_ERROR(cudaMemcpy(d_currentPoints, h_currentPoints, sizeof(int) * colorCount, cudaMemcpyHostToDevice));
 
     // Clear current Image
     float* clearedImage = (float*)malloc(sizeof(float) * 3 * resolution * resolution);
@@ -50,7 +56,7 @@ Weaver::Weaver(float* targetImage, Point* points, Color* colors, int colorCount,
 
     // Clear current weave block
     float* weaveBlock = (float*)malloc(pointCount * colorCount * resolution * resolution * 3 * sizeof(float));
-    for (size_t z = 0; z < pointCount; z++) 
+    for (size_t z = 0; z < pointCount * colorCount; z++) 
     {
         for (size_t y = 0; y < resolution; y++)
         {
@@ -115,12 +121,15 @@ Weaver::~Weaver()
 
 void Weaver::makeConnection(int pointIndex) {
     connections.push_back(pointIndex);
+    int colorIndex = pointIndex / pointCount;
+    int colorPoint = h_currentPoints[colorIndex];
 
-    h_connectionMatrix[(pointIndex * resolution) + currentPoint] = 1;
-    h_connectionMatrix[(currentPoint * resolution) + pointIndex] = 1;
+    h_connectionMatrix[(pointIndex * (colorCount * pointCount)) + ((colorIndex * pointCount) + colorPoint)] = 1;
+    h_connectionMatrix[(((colorIndex * pointCount) + colorPoint) * (colorCount * pointCount)) + pointIndex] = 1;
     HANDLE_ERROR(cudaMemcpy(d_connectionMatrix, h_connectionMatrix, (pointCount * colorCount) * (pointCount * colorCount) * sizeof(int), cudaMemcpyHostToDevice));
     HANDLE_ERROR(cudaMemcpy(d_currentImage, &d_weaveBlock[pointIndex * resolution * resolution * 3], (sizeof(float) * 3 * resolution * resolution), cudaMemcpyDeviceToDevice));
-    currentPoint = pointIndex;
+    h_currentPoints[colorIndex] = pointIndex % pointCount;
+    HANDLE_ERROR(cudaMemcpy(d_currentPoints, h_currentPoints, sizeof(int) * colorCount, cudaMemcpyHostToDevice));
 }
 
 int Weaver::weaveIteration() {
@@ -143,7 +152,7 @@ int Weaver::weaveIteration() {
 	cudaEventCreate(&stop); 
 	cudaEventRecord(start);
     // Draw lines
-    dev_drawLine<<<grid, block>>>(d_weaveBlock, d_currentImage, d_points, currentPoint, pointCount, resolution, lineThickness, d_colors, colorCount);
+    dev_drawLine<<<grid, block>>>(d_weaveBlock, d_currentImage, d_points, d_currentPoints, pointCount, resolution, lineThickness, d_colors, colorCount);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) 
         printf("Error: %s\n", cudaGetErrorString(err));
@@ -159,7 +168,7 @@ int Weaver::weaveIteration() {
 	cudaEventCreate(&stop); 
 	cudaEventRecord(start);
     // Compute loss
-    dev_calculateLoss<<<grid, block, BLOCK_X * BLOCK_Y * sizeof(float)>>>(d_weaveBlock, d_tempWeaveBlock, d_connectionMatrix, d_currentImage, d_targetImage, d_points, d_scores, d_gausianKernel, kernelSize, currentPoint, pointCount, resolution, d_colors, colorCount);
+    dev_calculateLoss<<<grid, block, BLOCK_X * BLOCK_Y * sizeof(float)>>>(d_weaveBlock, d_tempWeaveBlock, d_connectionMatrix, d_currentImage, d_targetImage, d_points, d_scores, d_gausianKernel, kernelSize, d_currentPoints, pointCount, resolution, d_colors, colorCount);
     err = cudaGetLastError();
     if (err != cudaSuccess) 
         printf("Error: %s\n", cudaGetErrorString(err));
@@ -176,7 +185,7 @@ int Weaver::weaveIteration() {
     // Find min value
     int lowestIndex = 0;
     float minLoss = scores[0];
-    for (size_t i = 0; i < pointCount; i++)
+    for (size_t i = 0; i < pointCount * colorCount; i++)
     {
         if(scores[i] < minLoss) {
             minLoss = scores[i];
@@ -187,7 +196,7 @@ int Weaver::weaveIteration() {
     }
 
     // Reset score
-    HANDLE_ERROR(cudaMemcpy(d_scores, scores, sizeof(float) * pointCount, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_scores, scores, sizeof(float) * pointCount * colorCount, cudaMemcpyHostToDevice));
     free(scores);
 
     makeConnection(lowestIndex);
@@ -252,4 +261,5 @@ void Weaver::initializeGPUMemory() {
     HANDLE_ERROR(cudaMalloc((void**)&d_targetImage, 3 * resolution * resolution * sizeof(float)));
     HANDLE_ERROR(cudaMalloc((void**)&d_scores, colorCount * pointCount * sizeof(float)));
     HANDLE_ERROR(cudaMalloc((void**)&d_colors, colorCount * sizeof(Color)));
+    HANDLE_ERROR(cudaMalloc((void**)&d_currentPoints, colorCount * sizeof(int)));
 }

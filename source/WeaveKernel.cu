@@ -29,7 +29,7 @@ const int SAMPLE_GRID_SIZE = 8;
 __global__ void dev_drawLine(float* d_weaveBlock, 
     float* d_currentImage,
     Point* d_points,
-    int currentPoint,
+    int* currentPoints,
     int pointCount,
     int resolution,
     float lineThickness,
@@ -40,7 +40,10 @@ __global__ void dev_drawLine(float* d_weaveBlock,
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
     int z = (blockIdx.z * blockDim.z) + threadIdx.z;
 
-    Color color = colors[z / pointCount];
+    int colorIndex = z / pointCount;
+    int pointIndex = z % pointCount;
+
+    Color color = colors[colorIndex];
 
     float px = x / (float) resolution;
     float py = y / (float) resolution;
@@ -53,10 +56,10 @@ __global__ void dev_drawLine(float* d_weaveBlock,
         }
 
         // Draw Line
-        float ax = d_points[currentPoint].x;
-        float ay = d_points[currentPoint].y;
-        float bx = d_points[z % pointCount].x;
-        float by = d_points[z % pointCount].y;
+        float ax = d_points[currentPoints[colorIndex]].x;
+        float ay = d_points[currentPoints[colorIndex]].y;
+        float bx = d_points[pointIndex].x;
+        float by = d_points[pointIndex].y;
 
         float val = 0.0f;
         float max = 0.0f;
@@ -106,7 +109,7 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
     float* d_scores,
     float* d_gausianKernel,
     int kernelSize,
-    int currentPoint,
+    int* currentPoints,
     int pointCount,
     int resolution,
     Color* colors,
@@ -115,6 +118,9 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
     int z = (blockIdx.z * blockDim.z) + threadIdx.z;
+
+    int colorIndex = z / pointCount;
+    int pointIndex = z % pointCount;
 
     // Ensure thread is within bound
     if(z < pointCount * colorCount && x < resolution && y < resolution) {
@@ -141,12 +147,15 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
                 }
             }
         }
-        // float accum = d_weaveBlock[(z * resolution * resolution) + (y * resolution) + x];
+        // float accumR = d_weaveBlock[(((z * resolution * resolution) + (y * resolution) + x) * 3) + 0];
+        // float accumG = d_weaveBlock[(((z * resolution * resolution) + (y * resolution) + x) * 3) + 1];
+        // float accumB = d_weaveBlock[(((z * resolution * resolution) + (y * resolution) + x) * 3) + 2];
+
 
         // Get Pixel loss
-        float l1 = fabsf(accumR - d_targetImage[(((y * resolution) + x) * 3) + 0])
-                 + fabsf(accumG - d_targetImage[(((y * resolution) + x) * 3) + 1])
-                 + fabsf(accumB - d_targetImage[(((y * resolution) + x) * 3) + 2]);
+        float l1 = fabsf(d_targetImage[(((y * resolution) + x) * 3) + 0] - accumR)
+                 + fabsf(d_targetImage[(((y * resolution) + x) * 3) + 1] - accumG)
+                 + fabsf(d_targetImage[(((y * resolution) + x) * 3) + 2] - accumB);
 
         l1 /= 3;
         float l2 = l1 * l1;
@@ -157,18 +166,18 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
         loss += l2;
 
         // If the connection already exists, penalize
-        if(d_connectionMatrix[(z * resolution) + currentPoint] == 1){
+        if(d_connectionMatrix[(z * (pointCount * colorCount)) + (currentPoints[colorIndex] + (colorIndex * pointCount))] == 1){
             loss += 1.0f;
         }
 
-        d_scores[z] = l1;
+        // d_scores[z] = l1 * 10;
         // atomicAdd(&d_scores[z], loss);
-        return;
+        // return;
 
         // If connection is close, penalize proportionally
-        int apart = 1 + fminf(labs(z - currentPoint), labs(z - 100 - currentPoint));
-        float closenessPenalty = 1.0f / expf(apart);
-        loss += closenessPenalty;
+        // int apart = 1 + fminf(labs(z - currentPoint), labs(z - 100 - currentPoint));
+        // float closenessPenalty = 1.0f / expf(apart);
+        // loss += closenessPenalty;
 
         int idx = (threadIdx.y * blockDim.x) + threadIdx.x;
         __shared__ float blockLoss[32 * 32];
@@ -186,7 +195,7 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
         __syncthreads();
 
         if(threadIdx.x == 0 && threadIdx.y == 0){
-            atomicAdd(&d_scores[z], blockLoss[0] * 100);
+            atomicAdd(&d_scores[z], blockLoss[0]);
             // float l = 0.0f;
             // for (size_t a = 0; a < blockDim.x * blockDim.y; a++)
             // {
@@ -195,8 +204,6 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
             // atomicAdd(&d_scores[z], l);
         }
             // atomicAdd(&d_scores[z], loss);
-
-        // 115810 - 115757 -
     }
 
     // if(z == 49) {

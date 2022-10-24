@@ -33,14 +33,15 @@ private:
     float* d_scores;
     float* d_gausianKernel;
     Color* d_colors;
+    int*   d_currentPoints;
 
     int* h_connectionMatrix;
+    int* h_currentPoints;
 
     std::vector<int> connections;
 
     float lineThickness;
     int kernelSize;
-    int currentPoint = 0;
     int resolution;
     int pointCount;
     int colorCount;
