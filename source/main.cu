@@ -142,6 +142,7 @@ int main(int argc, char *argv[]) {
 	Point* points = getCircumfrancePoints(pointCount);
 	
 	Weaver weaver = Weaver(data, points, resolution, pointCount, lineThickness, blurRadius);
+	// CPUWeaver weaver = CPUWeaver(data, points, resolution, pointCount, lineThickness, blurRadius);
 	float prevLoss= std::numeric_limits<float>::max();
 	int times = 0;
 	const int MAX_FAIL_TIMES = 5;
