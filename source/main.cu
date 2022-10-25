@@ -7,6 +7,7 @@
 #include <limits>
 #include <fstream>
 
+#include "CPUWeaver.h"
 #include "Weaver.h"
 #include "lodepng.h"
 
