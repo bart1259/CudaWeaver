@@ -6,7 +6,7 @@ A program that makes art with the power of Cuda.
 
 Usage:
 ```bash
-./weaver [input.png] [ouput.png] -p [number of points] -r [resolution] -i [max iterations] -l [line thickness] -b [blur radius]
+./weaver [input.png] [ouput.png] -p [number of points] -r [resolution] -i [max iterations] -l [line thickness] -b [blur radius] -c [Colors like 'FF0000,FF6800,000055,000000,FFAA88']
 ```
 
 ## To compile
