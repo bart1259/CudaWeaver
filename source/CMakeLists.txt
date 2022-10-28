@@ -9,6 +9,7 @@ file(GLOB SOURCES
     ./*.cu
 )
 
+set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 cuda_add_executable("${PROJECT_NAME}" ${SOURCES})	#create an executable from the given CUDA files
 
 #specify any additional libraries here 

@@ -3,6 +3,8 @@
 #ifndef WEAVE_KERNEL_H
 #define WEAVE_KERNEL_H
 
+const int SAMPLE_GRID_SIZE = 8;
+
 __global__ void dev_drawLine(float* d_weaveBlock, 
     float* d_currentImage,
     Point* d_points,

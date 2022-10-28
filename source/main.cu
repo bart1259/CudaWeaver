@@ -6,9 +6,12 @@
 #include <vector>
 #include <limits>
 #include <fstream>
+#include <iomanip>
 
 #include "CPUWeaver.h"
 #include "GPUWeaver.h"
+#include "ColorWeaver.h"
+#include "color.h"
 #include "lodepng.h"
 
 bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
@@ -19,14 +22,16 @@ bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
         return true;
     }
 
-	*data = (float*)malloc((*width) * (*height) * sizeof(float) * 4);
+	*data = (float*)malloc((*width) * (*height) * sizeof(float) * 3);
 
 	for (size_t y = 0; y < *height; y++)
 	{
 		for (size_t x = 0; x < *width; x++)
 		{
 			int index = ((y * (*width)) + x);
-			(*data)[index] = 0.8f * (rawImgData[(index * 4)] + rawImgData[(index * 4) + 1] + rawImgData[(index * 4) + 2]) / 3.0f / 255.0f;
+			(*data)[(index*3) + 0] = rawImgData[(index * 4) + 0] / 255.0f;
+			(*data)[(index*3) + 1] = rawImgData[(index * 4) + 1] / 255.0f;
+			(*data)[(index*3) + 2] = rawImgData[(index * 4) + 2] / 255.0f;
 		}
 		
 	}
@@ -36,7 +41,7 @@ bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
 }
 
 float* rescale(float* originalImage, uint width, uint height, uint desiredDim) {
-	float* newImage = (float*)malloc(desiredDim * desiredDim * sizeof(float));
+	float* newImage = (float*)malloc(3 * desiredDim * desiredDim * sizeof(float));
 	int originalSize = min(width, height);
 	float scaling = desiredDim / (float)originalSize;
 
@@ -46,7 +51,9 @@ float* rescale(float* originalImage, uint width, uint height, uint desiredDim) {
 		{
 			int ox = (int)(x / scaling);
 			int oy = (int)(y / scaling);
-			newImage[(y * desiredDim) + x] = originalImage[(oy * width) + ox];
+			newImage[(((y * desiredDim) + x) * 3) + 0] = originalImage[(((oy * width) + ox) * 3) + 0];
+			newImage[(((y * desiredDim) + x) * 3) + 1] = originalImage[(((oy * width) + ox) * 3) + 1];
+			newImage[(((y * desiredDim) + x) * 3) + 2] = originalImage[(((oy * width) + ox) * 3) + 2];
 		}
 	}
 
@@ -77,6 +84,27 @@ void printHelp() {
 			  << "  -r The resolution of the image to do the calculations on (in pixels)" << std::endl;
 }
 
+void processColors(char* colorText, Color** colors, int* colorCount) {
+	
+	int strLength = strlen(colorText);
+	int numberOfColors = 1 + ((strLength - 6) / 7);
+
+	Color* newColors = (Color*)malloc(sizeof(Color) * numberOfColors);
+	for (size_t i = 0; i < numberOfColors; i++)
+	{
+		int color = strtol(&(colorText[i*7]), NULL, 16);
+		int blue = color & 0xFF;
+		int green = (color & 0xFF00) >> 8;
+		int red = (color & 0xFF0000) >> 16;
+		newColors[i].r = red / 255.0f;
+		newColors[i].g = green / 255.0f;
+		newColors[i].b = blue / 255.0f;
+	}
+	
+	*colorCount = numberOfColors;
+	*colors = newColors;
+}
+
 int main(int argc, char *argv[]) {
 	float* data;
 	uint width, height;
@@ -90,6 +118,9 @@ int main(int argc, char *argv[]) {
 	float lineThickness = 0.0005f;
 	uint resolution = 512;
 	bool useCPU = false;
+
+	Color* colors;
+	int colorCount = 0;
 
 	for (size_t i = 1; i < argc; i++)
 	{
@@ -124,6 +155,10 @@ int main(int argc, char *argv[]) {
 				printHelp();
 				return;
 			}
+		} else if(strcmp(argv[i], "-c") == 0) {
+			char* colorText = argv[++i];
+			processColors(colorText, &colors, &colorCount);
+			printf("%s\n", colorText);
 		} else if(strcmp(argv[i], "--cpu") == 0) {
 			useCPU = true;
 		} else if(strcmp(argv[i], "--gpu") == 0) {
@@ -136,8 +171,13 @@ int main(int argc, char *argv[]) {
 			instructionsFilePath = argv[i];
 		}
 	}
-	
 
+	if(useCPU && colorCount != 0) {
+		printf("Colors and CPU are not supported\n");
+		printHelp();
+		return;
+	}
+	
 	if(loadImage(&data, &width, &height, infilename)) {
 		return;
 	}
@@ -145,13 +185,19 @@ int main(int argc, char *argv[]) {
 	data = rescale(data, width, height, resolution);
 
 	Point* points = getCircumfrancePoints(pointCount);
+
 	
 	BaseWeaver* weaver;
-	if (useCPU) {
+	if(colorCount != 0) {
+		weaver = new ColorWeaver(data, points, colors, colorCount, resolution, pointCount, lineThickness, blurRadius);
+	}
+	else if (useCPU) {
 		weaver = new CPUWeaver(data, points, resolution, pointCount, lineThickness, blurRadius);
 	} else {
 		weaver = new GPUWeaver(data, points, resolution, pointCount, lineThickness, blurRadius);
 	}
+
+
 	float prevLoss= std::numeric_limits<float>::max();
 	int times = 0;
 	const int MAX_FAIL_TIMES = 5;
