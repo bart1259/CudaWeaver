@@ -105,9 +105,9 @@ const int SAMPLE_GRID_SIZE = 8;
 void CPUWeaver::makeConnection(int pointIndex) {
     connections.push_back(pointIndex);
 
-    h_connectionMatrix[(pointIndex * resolution) + currentPoint] = 1;
-    h_connectionMatrix[(currentPoint * resolution) + pointIndex] = 1;
-    this->h_currentImage = &this->h_weaveBlock[pointIndex * resolution * resolution];
+    h_connectionMatrix[(pointIndex * pointCount) + currentPoint] = 1;
+    h_connectionMatrix[(currentPoint * pointCount) + pointIndex] = 1;
+    memcpy(this->h_currentImage, &this->h_weaveBlock[pointIndex * resolution * resolution], sizeof(float) * resolution * resolution);
     currentPoint = pointIndex;
 }
 
@@ -163,8 +163,7 @@ void CPUWeaver::saveCurrentImage(const char* fileName) {
 		for (size_t x = 0; x < resolution; x++)
 		{
 			int index = ((y * resolution) + x);
-			unsigned char val = (unsigned char)(h_currentImage[index] * 255);
-            val = std::min(std::max((int)val, 0), 0xFF);
+			unsigned char val = (unsigned char)std::min(std::max((int)(h_currentImage[index] * 255), 0), 0xFF);
 			outputData[(index * 4) + 0] = val;
 			outputData[(index * 4) + 1] = val;
 			outputData[(index * 4) + 2] = val;
