@@ -11,7 +11,7 @@ using namespace std::chrono;
 #include "device_launch_parameters.h"
 #include "math.h"
 
-CPUWeaver::CPUWeaver(float* targetImage, Point* points, int resolution, int pointCount, float lineThickness, float gausianBlurRadius)
+CPUWeaver::CPUWeaver(float* targetImage, Point* points, int resolution, int pointCount, float lineThickness, float gausianBlurRadius) : BaseWeaver()
 {
     this->resolution = resolution;
     this->pointCount = pointCount;
@@ -84,6 +84,13 @@ CPUWeaver::CPUWeaver(float* targetImage, Point* points, int resolution, int poin
             this->h_gausianKernel[((blurY + blurRadius) * kernelSize) + blurX + blurRadius] /= kernelSum;
         }
     }
+
+    h_scores = (float*)malloc(pointCount * sizeof(float));
+    for (size_t i = 0; i < pointCount; i++)
+    {
+        h_scores[i] = 0.0f;
+    }
+    
 }
 
 CPUWeaver::~CPUWeaver()
@@ -104,18 +111,18 @@ void CPUWeaver::makeConnection(int pointIndex) {
     currentPoint = pointIndex;
 }
 
-int CPUWeaver::weaveIteration() {
+float CPUWeaver::weaveIteration() {
     auto begin = high_resolution_clock::now();
     timespec ts, te; 
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts); 
 
-    dev_drawLine();
+    drawLines();
 
     clock_gettime(CLOCK_MONOTONIC_RAW, &te); 
     printf(" %f ms ", cpu_time(&ts, &te));
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts); 
 
-    dev_calculateLoss();
+    calculateLosses();
 
     clock_gettime(CLOCK_MONOTONIC_RAW, &te); 
     printf(" %f ms ", cpu_time(&ts, &te));
@@ -157,7 +164,7 @@ void CPUWeaver::saveCurrentImage(const char* fileName) {
 		{
 			int index = ((y * resolution) + x);
 			unsigned char val = (unsigned char)(h_currentImage[index] * 255);
-            val = min(max(val, 0), 0xFF);
+            val = std::min(std::max((int)val, 0), 0xFF);
 			outputData[(index * 4) + 0] = val;
 			outputData[(index * 4) + 1] = val;
 			outputData[(index * 4) + 2] = val;
@@ -187,7 +194,7 @@ float CPUWeaver::cpu_time(timespec* start, timespec* end){
     return ((1e9*end->tv_sec + end->tv_nsec) - (1e9*start->tv_sec + start->tv_nsec))/1e6; 
 } 
 
-void CPUWeaver::dev_drawLine(){
+void CPUWeaver::drawLines(){
     for (int z = 0; z < pointCount; z++){
         for (int x = 0; x < resolution; x++){
             for (int y = 0; y < resolution; y++){
@@ -228,7 +235,7 @@ void CPUWeaver::dev_drawLine(){
     }
 } 
 
-void CPUWeaver::dev_calculateLoss(){
+void CPUWeaver::calculateLosses(){
     for (int z = 0; z < pointCount; z++){
         for (int x = 0; x < resolution; x++){
             for (int y = 0; y < resolution; y++){
@@ -257,7 +264,7 @@ void CPUWeaver::dev_calculateLoss(){
                 loss += l2;
 
                 // If the connection already exists, penalize
-                if(h_connectionMatrix[(z * resolution) + currentPoint] == 1){
+                if(h_connectionMatrix[(z * pointCount) + currentPoint] == 1){
                     loss += 1.0f;
                 }
 

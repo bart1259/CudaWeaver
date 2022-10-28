@@ -3,26 +3,28 @@
 
 #include "GPUUtils.h"
 #include "Point.h"
+#include "BaseWeaver.h"
 #include <iostream>
 
 #ifndef CPUWEAVER_H
 #define CPUWEAVER_H
 
-class CPUWeaver
+class CPUWeaver : public BaseWeaver
 {
 public:
     CPUWeaver(float* targetImage, Point* points, int resolution, int pointCount, float lineThickness, float gausianBlurRadius);
     ~CPUWeaver();
 
-    int weaveIteration();
+    float weaveIteration() override;
+    void saveCurrentImage(const char* fileName) override;
+    std::string getInstructionsStr() override;
+
     void makeConnection(int pointIndex);
-    void saveCurrentImage(const char* fileName);
     void saveBlockImage(const char* fileName);
     float cpu_time(timespec* start, timespec* end);
-    void dev_drawLine();
-    void dev_calculateLoss();
+    void drawLines();
+    void calculateLosses();
     bool insideLine(float px, float py, float ax, float ay, float bx, float by, float lineThickness);
-    std::string getInstructionsStr();
 private:
     float* h_weaveBlock;
     float* h_tempWeaveBlock;

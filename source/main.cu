@@ -7,7 +7,8 @@
 #include <limits>
 #include <fstream>
 
-#include "Weaver.h"
+#include "CPUWeaver.h"
+#include "GPUWeaver.h"
 #include "lodepng.h"
 
 bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
@@ -88,7 +89,7 @@ int main(int argc, char *argv[]) {
 	uint iterations = 5000;
 	float lineThickness = 0.0005f;
 	uint resolution = 512;
-
+	bool useCPU = false;
 
 	for (size_t i = 1; i < argc; i++)
 	{
@@ -123,6 +124,10 @@ int main(int argc, char *argv[]) {
 				printHelp();
 				return;
 			}
+		} else if(strcmp(argv[i], "--cpu") == 0) {
+			useCPU = true;
+		} else if(strcmp(argv[i], "--gpu") == 0) {
+			useCPU = false;
 		} else if(i == 1) {
 			infilename = argv[i];
 		} else if(i == 2) {
@@ -141,14 +146,18 @@ int main(int argc, char *argv[]) {
 
 	Point* points = getCircumfrancePoints(pointCount);
 	
-	Weaver weaver = Weaver(data, points, resolution, pointCount, lineThickness, blurRadius);
-	// CPUWeaver weaver = CPUWeaver(data, points, resolution, pointCount, lineThickness, blurRadius);
+	BaseWeaver* weaver;
+	if (useCPU) {
+		weaver = new CPUWeaver(data, points, resolution, pointCount, lineThickness, blurRadius);
+	} else {
+		weaver = new GPUWeaver(data, points, resolution, pointCount, lineThickness, blurRadius);
+	}
 	float prevLoss= std::numeric_limits<float>::max();
 	int times = 0;
 	const int MAX_FAIL_TIMES = 5;
 	for (size_t i = 0; i < iterations; i++)
 	{
-		float loss = weaver.weaveIteration();
+		float loss = weaver->weaveIteration();
 		if (prevLoss - loss < 0.01f) {
 			if (++times >= MAX_FAIL_TIMES)
 				break;
@@ -158,7 +167,7 @@ int main(int argc, char *argv[]) {
 		std::cout << i << ": " << loss << std::endl;
 		prevLoss = loss;
 	}	
-	weaver.saveCurrentImage(outfilename);
+	weaver->saveCurrentImage(outfilename);
 
 	if (instructionsFilePath != nullptr) {
 		std::ofstream instructionsFile;
@@ -170,7 +179,7 @@ int main(int argc, char *argv[]) {
 			instructionsFile << i << ", " << points[i].x << ", " << points[i].y << std::endl;
 		}
 		instructionsFile << "#### INSTRUCTIONS ####" << std::endl;
-		instructionsFile <<  weaver.getInstructionsStr() << std::endl;
+		instructionsFile <<  weaver->getInstructionsStr() << std::endl;
 	}
 
 	return 0;
