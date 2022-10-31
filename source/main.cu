@@ -33,7 +33,7 @@ bool loadImage(float** data, uint* width, uint* height, const char* fileName, bo
 		{
 			int index = ((y * (*width)) + x);
 			if(grayscale) {
-				(*data)[index] = 0.8f * (rawImgData[(index * 4) + 0] + rawImgData[(index * 4) + 1] + rawImgData[(index * 4) + 2]) / 255.0f / 3.0f;
+				(*data)[index] = (rawImgData[(index * 4) + 0] + rawImgData[(index * 4) + 1] + rawImgData[(index * 4) + 2]) / 255.0f / 3.0f;
 			} else {
 				(*data)[(index*3) + 0] = rawImgData[(index * 4) + 0] / 255.0f;
 				(*data)[(index*3) + 1] = rawImgData[(index * 4) + 1] / 255.0f;
