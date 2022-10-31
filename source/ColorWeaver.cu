@@ -127,7 +127,7 @@ void ColorWeaver::makeConnection(int pointIndex) {
     h_connectionMatrix[(pointIndex * (colorCount * pointCount)) + ((colorIndex * pointCount) + colorPoint)] = 1;
     h_connectionMatrix[(((colorIndex * pointCount) + colorPoint) * (colorCount * pointCount)) + pointIndex] = 1;
     HANDLE_ERROR(cudaMemcpy(d_connectionMatrix, h_connectionMatrix, (pointCount * colorCount) * (pointCount * colorCount) * sizeof(int), cudaMemcpyHostToDevice));
-    HANDLE_ERROR(cudaMemcpy(d_currentImage, &d_weaveBlock[pointIndex * resolution * resolution * 3], (sizeof(float) * 3 * resolution * resolution), cudaMemcpyDeviceToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_currentImage, &(d_weaveBlock[pointIndex * resolution * resolution * 3]), (sizeof(float) * 3 * resolution * resolution), cudaMemcpyDeviceToDevice));
     h_currentPoints[colorIndex] = pointIndex % pointCount;
     HANDLE_ERROR(cudaMemcpy(d_currentPoints, h_currentPoints, sizeof(int) * colorCount, cudaMemcpyHostToDevice));
 }

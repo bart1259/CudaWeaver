@@ -14,7 +14,7 @@
 #include "color.h"
 #include "lodepng.h"
 
-bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
+bool loadImage(float** data, uint* width, uint* height, const char* fileName, bool grayscale) {
 	unsigned char* rawImgData;
 	unsigned int error = lodepng_decode32_file(&rawImgData, width, height, fileName);
     if(error) {
@@ -22,16 +22,23 @@ bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
         return true;
     }
 
-	*data = (float*)malloc((*width) * (*height) * sizeof(float) * 3);
+	if(grayscale)
+		*data = (float*)malloc((*width) * (*height) * sizeof(float));
+	else
+		*data = (float*)malloc((*width) * (*height) * sizeof(float) * 3);
 
 	for (size_t y = 0; y < *height; y++)
 	{
 		for (size_t x = 0; x < *width; x++)
 		{
 			int index = ((y * (*width)) + x);
-			(*data)[(index*3) + 0] = rawImgData[(index * 4) + 0] / 255.0f;
-			(*data)[(index*3) + 1] = rawImgData[(index * 4) + 1] / 255.0f;
-			(*data)[(index*3) + 2] = rawImgData[(index * 4) + 2] / 255.0f;
+			if(grayscale) {
+				(*data)[index] = 0.8f * (rawImgData[(index * 4) + 0] + rawImgData[(index * 4) + 1] + rawImgData[(index * 4) + 2]) / 255.0f / 3.0f;
+			} else {
+				(*data)[(index*3) + 0] = rawImgData[(index * 4) + 0] / 255.0f;
+				(*data)[(index*3) + 1] = rawImgData[(index * 4) + 1] / 255.0f;
+				(*data)[(index*3) + 2] = rawImgData[(index * 4) + 2] / 255.0f;
+			}
 		}
 		
 	}
@@ -40,8 +47,13 @@ bool loadImage(float** data, uint* width, uint* height, const char* fileName) {
 	return false;
 }
 
-float* rescale(float* originalImage, uint width, uint height, uint desiredDim) {
-	float* newImage = (float*)malloc(3 * desiredDim * desiredDim * sizeof(float));
+float* rescale(float* originalImage, uint width, uint height, uint desiredDim, bool grayscale) {
+	float* newImage;
+	if(grayscale) {
+		newImage = (float*)malloc(desiredDim * desiredDim * sizeof(float));
+	} else {
+		newImage = (float*)malloc(3 * desiredDim * desiredDim * sizeof(float));
+	}
 	int originalSize = min(width, height);
 	float scaling = desiredDim / (float)originalSize;
 
@@ -51,9 +63,16 @@ float* rescale(float* originalImage, uint width, uint height, uint desiredDim) {
 		{
 			int ox = (int)(x / scaling);
 			int oy = (int)(y / scaling);
-			newImage[(((y * desiredDim) + x) * 3) + 0] = originalImage[(((oy * width) + ox) * 3) + 0];
-			newImage[(((y * desiredDim) + x) * 3) + 1] = originalImage[(((oy * width) + ox) * 3) + 1];
-			newImage[(((y * desiredDim) + x) * 3) + 2] = originalImage[(((oy * width) + ox) * 3) + 2];
+			int oindex = ((oy * width) + ox);
+			int nindex = ((y * desiredDim) + x);
+			
+			if(grayscale) {
+				newImage[nindex] = originalImage[oindex];
+			} else {
+				newImage[(nindex * 3) + 0] = originalImage[(oindex * 3) + 0];
+				newImage[(nindex * 3) + 1] = originalImage[(oindex * 3) + 1];
+				newImage[(nindex * 3) + 2] = originalImage[(oindex * 3) + 2];
+			}
 		}
 	}
 
@@ -178,12 +197,19 @@ int main(int argc, char *argv[]) {
 		return;
 	}
 	
-	if(loadImage(&data, &width, &height, infilename)) {
+	if(colorCount != 0) {
+		for (size_t i = 0; i < colorCount; i++)
+		{
+			std::cout << "Color " << i << ": " << colors[i].r << " " << colors[i].g << " " << colors[i].b << std::endl;
+		}
+	}
+
+	bool grayScale = colorCount == 0;
+	if(loadImage(&data, &width, &height, infilename, grayScale)) {
 		return;
 	}
 
-	data = rescale(data, width, height, resolution);
-
+	data = rescale(data, width, height, resolution, grayScale);
 	Point* points = getCircumfrancePoints(pointCount);
 
 	
@@ -196,7 +222,6 @@ int main(int argc, char *argv[]) {
 	} else {
 		weaver = new GPUWeaver(data, points, resolution, pointCount, lineThickness, blurRadius);
 	}
-
 
 	float prevLoss= std::numeric_limits<float>::max();
 	int times = 0;
