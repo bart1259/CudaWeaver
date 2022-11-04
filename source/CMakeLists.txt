@@ -9,6 +9,8 @@ file(GLOB SOURCES
     ./*.cu
 )
 
+# set(CMAKE_CXX_FLAGS_DEBUG "-O0")
+# set(CUDA_NVCC_FLAGS -g;-G)
 set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 cuda_add_executable("${PROJECT_NAME}" ${SOURCES})	#create an executable from the given CUDA files
 

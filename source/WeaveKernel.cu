@@ -80,6 +80,38 @@ __global__ void dev_drawLine(float* d_weaveBlock,
 
 }
 
+__global__ void dev_blurX(float* d_weaveBlock,
+    float* d_tempWeaveBlock,
+    float* d_gausianKernel,
+    int kernelSize,
+    int resolution,
+    int pointCount) {
+
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+    int z = (blockIdx.z * blockDim.z) + threadIdx.z;
+
+    // Ensure thread is within bound
+    if(z < pointCount && x < resolution && y < resolution) {
+        // Blur the image in the x direction
+        float accum = 0.0f;
+        for (int blurX = -kernelSize / 2; blurX <= kernelSize / 2; blurX++)
+        {
+            float strength = d_gausianKernel[blurX + (kernelSize / 2)];
+            int xi = x + blurX;
+            int yi = y + 0;
+            if(xi < 0 || xi >= resolution || yi < 0 || yi >= resolution) {
+                accum += strength;
+            } else {
+                accum += strength * d_weaveBlock[(z * resolution * resolution) + (yi * resolution) + xi];
+            }
+        }
+
+        d_tempWeaveBlock[(z * resolution * resolution) + (y * resolution) + x] = accum;
+    }
+
+}
+
 __global__ void dev_calculateLoss(float* d_weaveBlock, 
     float* d_tempWeaveBlock,
     int* d_connectionMatrix,
@@ -102,18 +134,15 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
 
         // // Blur image
         float accum = 0.0f;
-        for (int blurX = -kernelSize / 2; blurX <= kernelSize / 2; blurX++)
+        for (int blurY = -kernelSize / 2; blurY <= kernelSize / 2; blurY++)
         {
-            for (int blurY = -kernelSize / 2; blurY <= kernelSize / 2; blurY++)
-            {
-                float strength = d_gausianKernel[((blurY + kernelSize / 2) * kernelSize) + blurX + (kernelSize / 2)];
-                int xi = x + blurX;
-                int yi = y + blurY;
-                if(xi < 0 || xi >= resolution || yi < 0 || yi >= resolution) {
-                    accum += strength;
-                } else {
-                    accum += strength * d_weaveBlock[(z * resolution * resolution) + (yi * resolution) + xi];
-                }
+            float strength = d_gausianKernel[blurY + (kernelSize / 2)];
+            int xi = x + 0;
+            int yi = y + blurY;
+            if(xi < 0 || xi >= resolution || yi < 0 || yi >= resolution) {
+                accum += strength;
+            } else {
+                accum += strength * d_tempWeaveBlock[(z * resolution * resolution) + (yi * resolution) + xi];
             }
         }
         // float accum = d_weaveBlock[(z * resolution * resolution) + (y * resolution) + x];
@@ -121,8 +150,6 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
         // Get Pixel loss
         float l1 = accum - d_targetImage[(y * resolution) + x];
         float l2 = l1 * l1;
-        // if(z == 45)
-        //     d_currentImage[(y * resolution) + x] = l2;
 
         float loss = 0.0f;
         loss += l2;

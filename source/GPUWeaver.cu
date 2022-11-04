@@ -72,30 +72,29 @@ GPUWeaver::GPUWeaver(float* targetImage, Point* points, int resolution, int poin
     HANDLE_ERROR(cudaMemcpy(d_connectionMatrix, h_connectionMatrix, pointCount * pointCount * sizeof(int), cudaMemcpyHostToDevice));
 
     const float PI = 3.14159265359f;
-    int blurRadius = roundf32(resolution * gausianBlurRadius);
+    int blurRadius = std::max(0, (int)roundf32(resolution * gausianBlurRadius));
     kernelSize = (blurRadius * 2) + 1;
-    float* kernel = (float*)malloc(kernelSize * kernelSize * sizeof(float));
+    float* kernel = (float*)malloc(kernelSize * sizeof(float));
 
     float kernelSum = 0.0f;
     for (int blurX = -blurRadius; blurX <= blurRadius; blurX++)
     {
-        for (int blurY = -blurRadius; blurY <= blurRadius; blurY++)
-        {
-            float strength = (1.0f / (2 * PI * blurRadius * blurRadius))
-                * expf(- ((blurX * blurX) + (blurY * blurY)) / (2.0f * blurRadius * blurRadius));
-            kernel[((blurY + blurRadius) * kernelSize) + blurX + blurRadius] = strength;
-            kernelSum += strength;
+        float br = blurRadius / 2.5f;
+        if(br < 0.001) {
+            br = 0.001;
         }
+        float strength = (1.0f / (2 * PI * br))
+            * expf(- ((blurX * blurX)) / (2.0f * br * br));
+        kernel[blurX + blurRadius] = strength;
+        kernelSum += strength;
     }
     for (int blurX = -blurRadius; blurX <= blurRadius; blurX++)
     {
-        for (int blurY = -blurRadius; blurY <= blurRadius; blurY++)
-        {
-            kernel[((blurY + blurRadius) * kernelSize) + blurX + blurRadius] /= kernelSum;
-        }
+        kernel[blurX + blurRadius] /= kernelSum;
+        std::cout << kernel[blurX + blurRadius] << std::endl;
     }
-    HANDLE_ERROR(cudaMalloc((void**)&d_gausianKernel, kernelSize * kernelSize * sizeof(float)));
-    HANDLE_ERROR(cudaMemcpy(d_gausianKernel, kernel, kernelSize * kernelSize * sizeof(float), cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMalloc((void**)&d_gausianKernel, kernelSize * sizeof(float)));
+    HANDLE_ERROR(cudaMemcpy(d_gausianKernel, kernel, kernelSize * sizeof(float), cudaMemcpyHostToDevice));
     free(kernel);
 }
 
@@ -149,6 +148,7 @@ float GPUWeaver::weaveIteration() {
 	cudaEventCreate(&stop); 
 	cudaEventRecord(start);
     // Compute loss
+    dev_blurX<<<grid, block, BLOCK_X * BLOCK_Y * sizeof(float)>>>(d_weaveBlock, d_tempWeaveBlock, d_gausianKernel, kernelSize, resolution, pointCount);
     dev_calculateLoss<<<grid, block, BLOCK_X * BLOCK_Y * sizeof(float)>>>(d_weaveBlock, d_tempWeaveBlock, d_connectionMatrix, d_currentImage, d_targetImage, d_points, d_scores, d_gausianKernel, kernelSize, currentPoint, pointCount, resolution);
     err = cudaGetLastError();
     if (err != cudaSuccess) 
@@ -220,8 +220,8 @@ void GPUWeaver::saveCurrentImage(const char* fileName) {
     std::cout << "f." << fileName << " " << (int)outputData[((resolution * resolution * 4) - 1)] << " " << resolution << std::endl;
 	lodepng_encode32_file(fileName, outputData, resolution, resolution);
     std::cout << "g." << std::endl;
-    free(h_imgData);
-    free(outputData);
+    // free(h_imgData);
+    // free(outputData);
 }
 
 std::string GPUWeaver::getInstructionsStr() {

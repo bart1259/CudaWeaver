@@ -67,7 +67,7 @@ float* rescale(float* originalImage, uint width, uint height, uint desiredDim, b
 			int nindex = ((y * desiredDim) + x);
 			
 			if(grayscale) {
-				newImage[nindex] = originalImage[oindex];
+				newImage[nindex] = 0.8f * originalImage[oindex];
 			} else {
 				newImage[(nindex * 3) + 0] = originalImage[(oindex * 3) + 0];
 				newImage[(nindex * 3) + 1] = originalImage[(oindex * 3) + 1];
@@ -253,5 +253,6 @@ int main(int argc, char *argv[]) {
 		instructionsFile <<  weaver->getInstructionsStr() << std::endl;
 	}
 
+	std::cout << "Done" << std::endl;
 	return 0;
 }

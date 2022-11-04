@@ -1,6 +1,8 @@
 #include <vector>
 #include <stdio.h>
 
+#define OPTIMIZED_BLUR
+
 #include "GPUUtils.h"
 #include "Point.h"
 #include "WeaveKernel.h"
@@ -9,6 +11,7 @@
 
 #ifndef GPU_WEAVER_H
 #define GPU_WEAVER_H
+
 
 class GPUWeaver : public BaseWeaver
 {

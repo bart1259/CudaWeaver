@@ -13,6 +13,13 @@ __global__ void dev_drawLine(float* d_weaveBlock,
     int resolution,
     float lineThickness);
 
+__global__ void dev_blurX(float* d_weaveBlock,
+    float* d_tempWeaveBlock,
+    float* d_gausianKernel,
+    int kernelSize,
+    int resolution,
+    int pointCount);
+
 __global__ void dev_calculateLoss(float* d_weaveBlock, 
     float* d_tempWeaveBlock,
     int* d_connectionMatrix,
