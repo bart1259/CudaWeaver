@@ -142,12 +142,20 @@ __global__ void dev_calculateLoss(float* d_weaveBlock,
         blockLoss[idx] = loss;
 
         // Reduce sum
-        for (size_t s = 1; s < (blockDim.x * blockDim.y); s *= 2)
+//         for (size_t s = 1; s < (blockDim.x * blockDim.y); s *= 2)
+//         {
+//             __syncthreads();
+//             if(idx % (2*s) == 0) {
+//                 blockLoss[idx] += blockLoss[idx + s];
+//             }
+//         }
+        __syncthreads();
+        for (size_t s = (blockDim.x * blockDim.y)/2; s>0; s>>=1)
         {
-            __syncthreads();
-            if(idx % (2*s) == 0) {
+            if(idx < s){
                 blockLoss[idx] += blockLoss[idx + s];
             }
+            __syncthreads();
         }
         
         __syncthreads();
